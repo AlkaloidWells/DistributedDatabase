@@ -1,0 +1,249 @@
+create database dd_test;
+
+
+--table student
+drop table if exists student cascade;
+create table student (id serial primary key, name varchar);
+--table book
+drop table if exists book cascade;
+create table book(id serial primary key, title varchar);
+
+
+
+drop table if exists booksample cascade;
+create table booksample(id serial primary key, state varchar, 
+			lendable varchar, location varchar, book_id int references book(id));
+
+
+drop table if exists lend cascade;
+create table lend(student_id int references student(id), booksample_id int references 
+		  booksample(id), at date, returned_at date);
+
+
+-- paris site
+drop table if exists booksample_paris cascade;
+create table booksample_paris(check(location='paris')) inherits(booksample);
+
+drop table if exists lend_paris cascade;
+create table if not exists lend_paris() inherits(lend);
+
+
+
+explain select * from booksample;
+
+
+dd_test=> explain select * from booksample;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Append  (cost=0.00..151.56 rows=1251 width=104)
+   ->  Seq Scan on booksample  (cost=0.00..0.00 rows=1 width=104)
+   ->  Seq Scan on booksample_paris  (cost=0.00..16.10 rows=610 width=104)
+(3 rows)
+
+
+
+
+
+
+create database dd_test;
+
+
+
+
+
+#------------------------------------------------------------------------------
+# CONNECTIONS AND AUTHENTICATION
+#------------------------------------------------------------------------------
+
+# - Connection Settings -
+
+listen_addresses = '*'      # what IP address(es) to listen on;
+                    # comma-separated list of addresses;
+                    # defaults to 'localhost'; use '*' for all
+                    # (change requires restart)
+
+
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# IPv4 local connections:
+host    all             test_user       all                     md5
+
+
+
+
+
+-- booksample_lagos
+drop table if exists booksample_lagos cascade;
+create table booksample_lagos(id int, state varchar, lendable bool default false, location varchar, book_id int);
+
+-- lend_lagos
+drop table if exists lend_lagos cascade;
+create table lend_lagos(student_id int, booksample_id int, at date, returned_at date);
+
+
+
+
+create extension postgres_fdw;
+
+create server master_server foreign data wrapper postgres_fdw options (host '{ip address of the lagos postgres server}', port '5432' , dbname 'dd_test');
+
+create user mapping for master_user server master_server options (user '{our username on lagos server}', password '{our password on lagos server}');
+
+alter server master_server owner to master_user;
+
+
+
+
+
+drop foreign table if exists booksample_lagos cascade;
+create foreign table booksample_lagos (check(location='lagos')) inherits(booksample) server master_server;
+drop foreign table if exists lend_lagos cascade;
+create foreign table lend_lagos () inherits(lend) server master_server;
+
+
+
+
+insert into booksample values(1, 'new','paris',1)
+
+
+
+
+
+
+
+
+
+
+-- trigger on insert booksample
+create or replace function booksample_trigger_fn() returns trigger as
+$$
+begin
+
+    if new.location = 'paris' then
+        insert into booksample_paris values(new.*);
+    elsif new.location = 'lagos' then
+        insert into booksample_lagos values(new.*);
+    end if;
+
+    return null;
+end
+$$
+language plpgsql;
+
+drop trigger if exists booksample_trigger on booksample;  
+create trigger booksample_trigger before insert on booksample for each row execute procedure booksample_trigger_fn(); 
+
+
+
+
+
+
+create or replace function lend_trigger_fn() returns trigger as 
+$$
+declare
+    vbooksample booksample%rowtype;
+begin
+    -- select the booksample referenced by the booksample_id
+    select * into vbooksample from booksample where id=new.booksample_id;
+
+    -- get the location to use and save the row
+    if vbooksample.location = 'paris' then
+        insert into lend_paris values(new.*);
+    elsif vbooksample.location = 'lagos' then
+        insert into lend_lagos values(new.*);
+    end if;
+
+    return null;
+endtut
+$$
+language plpgsql;
+
+drop trigger if exists lend_trigger on lend;  
+create trigger lend_trigger before insert on lend for each row execute procedure lend_trigger_fn();
+
+
+
+
+insert into book(title) values('book#1');
+insert into student(name) values('std#1'),('std#2'), ('std#3');
+
+-- thanks to the trigger we wrote, the insertion will be executed in the right server 
+insert into booksample(state, lendable, location, book_id) values('old', true, 'lagos', 1), ('old', true, 'paris', 1), ('new', true 'lagos', 1);
+
+insert into lend(student_id , booksample_id ,at) values(1,1, now()), (2,2, now()), (3,3, now());
+
+
+
+
+
+explain select * from booksample;
+
+-- thanks to the check(location='{}') constraint, the select query is executed in a "smart" way 
+explain select * from booksample where location='lagos';
+                                 QUERY PLAN                                
+
+----------------------------------------------------------------------------
+ Append  (cost=0.00..118.08 rows=4 width=104)
+   ->  Seq Scan on booksample  (cost=0.00..0.00 rows=1 width=104)
+         Filter: ((location)::text = 'lagos'::text)
+   ->  Foreign Scan on booksample_lagos  (cost=100.00..118.06 rows=3 width=104)
+(4 rows)
+
+explain select * from booksample where location='paris';
+                                 QUERY PLAN                                
+
+----------------------------------------------------------------------------
+ Append  (cost=0.00..118.08 rows=4 width=104)
+   ->  Seq Scan on booksample  (cost=0.00..0.00 rows=1 width=104)
+         Filter: ((location)::text = 'paris'::text)
+   ->  Foreign Scan on booksample_paris  (cost=100.00..118.06 rows=3 width=104)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
